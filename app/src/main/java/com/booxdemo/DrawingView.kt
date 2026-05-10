@@ -56,22 +56,16 @@ class DrawingView @JvmOverloads constructor(
             Log.d(TAG, "onEndRawDrawing x=${touchPoint.x} y=${touchPoint.y}")
         }
 
-        override fun onRawDrawingTouchPointMoveReceived(touchPoint: TouchPoint) {
-            Log.d(TAG, "onMove x=${touchPoint.x} y=${touchPoint.y}")
-        }
+        override fun onRawDrawingTouchPointMoveReceived(touchPoint: TouchPoint) {}
 
         override fun onRawDrawingTouchPointListReceived(pointList: TouchPointList) {
             Log.d(TAG, "onPointList count=${pointList.size()}")
             renderStroke(pointList)
         }
 
-        override fun onBeginRawErasing(shortcutErasing: Boolean, touchPoint: TouchPoint) {
-            Log.d(TAG, "onBeginRawErasing")
-        }
+        override fun onBeginRawErasing(shortcutErasing: Boolean, touchPoint: TouchPoint) {}
 
-        override fun onEndRawErasing(shortcutErasing: Boolean, touchPoint: TouchPoint) {
-            Log.d(TAG, "onEndRawErasing")
-        }
+        override fun onEndRawErasing(shortcutErasing: Boolean, touchPoint: TouchPoint) {}
 
         override fun onRawErasingTouchPointMoveReceived(touchPoint: TouchPoint) {}
 
@@ -79,7 +73,7 @@ class DrawingView @JvmOverloads constructor(
     }
 
     // -------------------------------------------------------------------------
-    // Stroke rendering
+    // Stroke rendering — bitmap stays in sync; no overlay toggle during drawing
     // -------------------------------------------------------------------------
 
     private fun renderStroke(pointList: TouchPointList) {
@@ -93,7 +87,12 @@ class DrawingView @JvmOverloads constructor(
             path.lineTo(points[i].x, points[i].y)
         }
         canvas.drawPath(path, strokePaint)
+        // No toggle here — the hardware overlay already shows the stroke in real time.
+        // The bitmap is kept current silently; it surfaces via onDraw when the overlay resets.
+    }
 
+    // Toggle used only for clear and focus transitions, not during active drawing.
+    private fun commitToScreen() {
         post {
             touchHelper.setRawDrawingEnabled(false)
             invalidate()
@@ -122,7 +121,11 @@ class DrawingView @JvmOverloads constructor(
         super.onWindowFocusChanged(hasWindowFocus)
         Log.d(TAG, "onWindowFocusChanged hasFocus=$hasWindowFocus size=${width}x${height} isSetup=$isSetup")
         if (hasWindowFocus) {
-            if (width > 0 && height > 0) openRawDrawing()
+            if (width > 0 && height > 0) {
+                openRawDrawing()
+                // Overlay was cleared by restartRawDrawing; show the bitmap so prior strokes reappear.
+                invalidate()
+            }
         } else {
             if (isSetup) touchHelper.setRawDrawingEnabled(false)
         }
@@ -163,7 +166,6 @@ class DrawingView @JvmOverloads constructor(
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
-        Log.d(TAG, "onTouchEvent action=${event.action} tool=${event.getToolType(0)} x=${event.x} y=${event.y}")
         return if (isSetup) touchHelper.onTouchEvent(event) else super.onTouchEvent(event)
     }
 
@@ -177,13 +179,7 @@ class DrawingView @JvmOverloads constructor(
 
     fun clearCanvas() {
         renderCanvas?.drawColor(Color.WHITE)
-        if (isSetup) {
-            touchHelper.setRawDrawingEnabled(false)
-            invalidate()
-            post { touchHelper.setRawDrawingEnabled(true) }
-        } else {
-            invalidate()
-        }
+        if (isSetup) commitToScreen() else invalidate()
     }
 
     // -------------------------------------------------------------------------
